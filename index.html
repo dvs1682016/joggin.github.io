@@ -3,110 +3,342 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>學生管理系統</title>
+    <title>慢跑紀錄簿 (完整CRUD版)</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
-        body { font-family: sans-serif; max-width: 600px; margin: 2rem auto; padding: 0 1rem; }
-        .input-group { margin-bottom: 20px; padding: 15px; background: #f9f9f9; border-radius: 8px; }
-        input { padding: 8px; margin-right: 10px; border: 1px solid #ccc; border-radius: 4px; }
-        button { padding: 8px 16px; background-color: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; }
-        button:hover { background-color: #218838; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
-        th { background-color: #f2f2f2; }
+        /* --- 樣式設定 (與之前相同，新增按鈕樣式) --- */
+        body { font-family: "微軟正黑體", sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; line-height: 1.6; background-color: #f9f9f9; }
+        h1 { text-align: center; color: #333; margin-bottom: 30px; }
+        
+        .card { background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); margin-bottom: 2rem; border-top: 5px solid #4CAF50; transition: border-color 0.3s; }
+        .card.editing { border-top-color: #FF9800; /* 編輯模式變橘色 */ }
+
+        .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        .form-group { margin-bottom: 1rem; }
+        .form-group.full-width { grid-column: span 2; }
+        
+        label { display: block; margin-bottom: 0.5rem; font-weight: bold; color: #555; }
+        input { width: 100%; padding: 0.8rem; border: 1px solid #ddd; border-radius: 6px; font-size: 1rem; box-sizing: border-box; }
+        
+        /* 按鈕群組 */
+        .btn-group { grid-column: span 2; display: flex; gap: 10px; }
+        button { flex: 1; padding: 1rem; color: white; border: none; border-radius: 6px; font-size: 1.1rem; cursor: pointer; transition: background 0.3s; }
+        
+        /* 各種按鈕顏色 */
+        #submitBtn { background-color: #4CAF50; } /* 綠色：新增 */
+        #submitBtn.update-mode { background-color: #FF9800; } /* 橘色：更新 */
+        #cancelBtn { background-color: #999; display: none; } /* 灰色：取消 */
+        
+        button:hover { opacity: 0.9; }
+
+        /* 星星評分 */
+        .rating-container { display: flex; gap: 5px; cursor: pointer; font-size: 1.5rem; }
+        .star { color: #ddd; transition: color 0.2s; }
+        .star.selected { color: #ffc107; }
+
+        /* 表格樣式 */
+        table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+        th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #eee; }
+        th { background-color: #f4f4f4; color: #333; font-weight: bold; }
+        tr:hover { background-color: #f9f9f9; }
+        
+        /* 表格操作按鈕 */
+        .action-btn { padding: 5px 10px; font-size: 0.9rem; margin-right: 5px; width: auto; display: inline-block; }
+        .edit-btn { background-color: #2196F3; } /* 藍色 */
+        .del-btn { background-color: #F44336; } /* 紅色 */
+
+        /* 彈窗樣式 */
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: none; justify-content: center; align-items: center; z-index: 1000; }
+        .modal-content { background: white; padding: 30px; border-radius: 12px; text-align: center; width: 300px; box-shadow: 0 5px 15px rgba(0,0,0,0.3); animation: fadeIn 0.3s ease-out; }
+        .modal-icon { font-size: 3rem; margin-bottom: 10px; display: block; }
+        .modal-btn { background-color: #2196F3; margin-top: 20px; width: auto; padding: 8px 25px; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
+        
+        @media (max-width: 600px) { .form-grid { grid-template-columns: 1fr; } .form-group.full-width, .btn-group { grid-column: span 1; } table { display: block; overflow-x: auto; white-space: nowrap; } }
     </style>
 </head>
 <body>
 
-    <h1>學生資料管理系統</h1>
+    <h1>🏃‍♂️ 慢跑紀錄簿 (完整版)</h1>
 
-    <div class="input-group">
-        <input type="text" id="studentId" placeholder="輸入學號">
-        <input type="text" id="studentName" placeholder="輸入姓名">
-        <button id="addBtn">新增學生</button>
+    <div class="card" id="inputCard">
+        <div class="form-grid">
+            <input type="hidden" id="currentId">
+            
+            <div class="form-group">
+                <label>日期</label>
+                <input type="date" id="dateInput">
+            </div>
+            <div class="form-group">
+                <label>地點</label>
+                <input type="text" id="locationInput" placeholder="例如: 河濱公園">
+            </div>
+            <div class="form-group">
+                <label>距離 (公里)</label>
+                <input type="number" id="distanceInput" step="0.1" placeholder="0.0">
+            </div>
+            <div class="form-group">
+                <label>時間 (分鐘)</label>
+                <input type="number" id="durationInput" placeholder="0">
+            </div>
+            <div class="form-group full-width">
+                <label>自我滿意度 (1~5顆心)</label>
+                <div class="rating-container" id="starRating">
+                    <span class="star" data-value="1">★</span>
+                    <span class="star" data-value="2">★</span>
+                    <span class="star" data-value="3">★</span>
+                    <span class="star" data-value="4">★</span>
+                    <span class="star" data-value="5">★</span>
+                </div>
+                <input type="hidden" id="feelingValue" value="0"> 
+            </div>
+            
+            <div class="btn-group">
+                <button id="submitBtn" onclick="handleSubmit()">新增紀錄</button>
+                <button id="cancelBtn" onclick="resetForm()">取消修改</button>
+            </div>
+        </div>
     </div>
 
-    <table>
+    <table id="logsTable">
         <thead>
             <tr>
-                <th>學號</th>
-                <th>姓名</th>
-            </tr>
+                <th>日期</th>
+                <th>距離 (km)</th>
+                <th>時間 (min)</th>
+                <th>地點</th>
+                <th>滿意度</th>
+                <th>操作</th> </tr>
         </thead>
-        <tbody id="studentList">
-            </tbody>
+        <tbody id="tableBody"></tbody>
     </table>
+    <p id="loadingText" style="text-align: center; color: #888;">載入中...</p>
 
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <div id="successModal" class="modal-overlay">
+        <div class="modal-content">
+            <span class="modal-icon">🎉</span>
+            <h3 id="modalTitle">操作成功！</h3>
+            <button class="modal-btn" onclick="closeModal()">確定</button>
+        </div>
+    </div>
+
     <script>
-        // --- A. 初始化設定 ---
-        const supabaseUrl = 'https://jizwmppcyjyhmrvrdwqi.supabase.co'
-        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImppendtcHBjeWp5aG1ydnJkd3FpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA1NjA3MTAsImV4cCI6MjA3NjEzNjcxMH0.H5I0Z-l9cA7g39ZhwAKJ25Y9svIuL86HCqGnNL4ADzM'
-        const _supabase = supabase.createClient(supabaseUrl, supabaseKey)
+        // ==========================================
+        // 1. 設定 Supabase (請填入你的 Key)
+        // ==========================================
+        const SUPABASE_URL = 'https://jizwmppcyjyhmrvrdwqi.supabase.co'; 
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImppendtcHBjeWp5aG1ydnJkd3FpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA1NjA3MTAsImV4cCI6MjA3NjEzNjcxMH0.H5I0Z-l9cA7g39ZhwAKJ25Y9svIuL86HCqGnNL4ADzM'; 
 
-        // --- B. 定義讀取資料的函式 (SELECT) ---
-        async function fetchData() {
-            // 1. 從 Supabase 抓取資料
-            const { data, error } = await _supabase
-                .from('entires')
-                .select('*')
-                .order('student_id', { ascending: true }); // 依照學號排序
+        const dbClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-            if (error) {
-                console.error("讀取失敗:", error);
-                return;
-            }
+        // 用一個全域變數來存目前抓到的所有資料，方便編輯時取用
+        let allLogsData = [];
 
-            // 2. 清空目前的表格 (避免重複堆疊)
-            const list = document.getElementById('studentList');
-            list.innerHTML = ''; 
+        // ==========================================
+        // 2. 星星評分邏輯
+        // ==========================================
+        const stars = document.querySelectorAll('#starRating .star');
+        const feelingInput = document.getElementById('feelingValue');
 
-            // 3. 將每一筆資料轉成 HTML 表格列
-            data.forEach(student => {
-                const row = `
-                    <tr>
-                        <td>${student.student_id}</td>
-                        <td>${student.name}</td>
-                    </tr>
-                `;
-                list.innerHTML += row;
+        stars.forEach(star => {
+            star.addEventListener('click', function() {
+                const value = this.getAttribute('data-value');
+                feelingInput.value = value; 
+                updateStarsUI(value);
+            });
+        });
+
+        function updateStarsUI(value) {
+            stars.forEach(s => {
+                if (s.getAttribute('data-value') <= value) s.classList.add('selected');
+                else s.classList.remove('selected');
             });
         }
 
-        // --- C. 按鈕事件監聽 (INSERT) ---
-        const addBtn = document.getElementById('addBtn');
+        // ==========================================
+        // 3. 讀取資料 (Read)
+        // ==========================================
+        async function fetchLogs() {
+            const tbody = document.getElementById('tableBody');
+            const loading = document.getElementById('loadingText');
+            loading.style.display = 'block';
+            tbody.innerHTML = '';
 
-        addBtn.addEventListener('click', async function() {
-            const idInput = document.getElementById('studentId');
-            const nameInput = document.getElementById('studentName');
-            const id = idInput.value;
-            const name = nameInput.value;
+            // 依照 created_at 降序排列 (最新的在最上面)
+            const { data, error } = await dbClient
+                .from('jogging_logs')
+                .select('*')
+                .order('created_at', { ascending: false });
 
-            if (!id || !name) {
-                alert("請輸入完整的學號與姓名！");
+            loading.style.display = 'none';
+
+            if (error) {
+                console.error(error);
+                alert('讀取失敗: ' + error.message);
                 return;
             }
 
-            // 寫入資料
-            const { data, error } = await _supabase
-                .from('entires')
-                .insert([{ student_id: id, name: name }])
-                .select();
+            allLogsData = data; // 存到全域變數，供編輯時查找
+
+            if (data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center">目前沒有資料</td></tr>';
+                return;
+            }
+
+            data.forEach(log => {
+                const score = parseInt(log.feeling) || 0; 
+                const starsDisplay = '⭐'.repeat(score); 
+
+                const row = `
+                    <tr>
+                        <td>${log.run_date}</td>
+                        <td>${log.distance_km}</td>
+                        <td>${log.duration_min}</td>
+                        <td>${log.location || '-'}</td>
+                        <td style="color: #ffc107;">${starsDisplay}</td>
+                        <td>
+                            <button class="action-btn edit-btn" onclick="startEdit(${log.id})">修改</button>
+                            <button class="action-btn del-btn" onclick="deleteLog(${log.id})">刪除</button>
+                        </td>
+                    </tr>
+                `;
+                tbody.innerHTML += row;
+            });
+        }
+
+        // ==========================================
+        // 4. 提交表單 (判斷是新增還是更新)
+        // ==========================================
+        async function handleSubmit() {
+            const currentId = document.getElementById('currentId').value;
+            const date = document.getElementById('dateInput').value;
+            const dist = document.getElementById('distanceInput').value;
+            const dur = document.getElementById('durationInput').value;
+            const loc = document.getElementById('locationInput').value;
+            const feel = document.getElementById('feelingValue').value;
+
+            if (!date || !dist || !dur) {
+                alert('請填寫完整資訊');
+                return;
+            }
+
+            const payload = {
+                run_date: date,
+                distance_km: dist,
+                duration_min: dur,
+                location: loc,
+                feeling: feel
+            };
+
+            let error = null;
+
+            if (currentId) {
+                // --- 更新模式 (Update) ---
+                console.log("正在更新 ID:", currentId);
+                const response = await dbClient
+                    .from('jogging_logs')
+                    .update(payload)
+                    .eq('id', currentId);
+                error = response.error;
+            } else {
+                // --- 新增模式 (Create) ---
+                console.log("正在新增資料");
+                const response = await dbClient
+                    .from('jogging_logs')
+                    .insert(payload);
+                error = response.error;
+            }
 
             if (error) {
-                console.error("錯誤:", error);
-                alert("新增失敗：" + error.message);
+                alert('操作失敗: ' + error.message);
             } else {
-                alert("新增成功！");
-                idInput.value = ''; // 清空輸入框
-                nameInput.value = '';
-                
-                // *** 重點：新增成功後，重新讀取一次資料表 ***
-                fetchData();
+                showModal(currentId ? "修改成功！" : "新增成功！");
+                resetForm(); // 重置表單
+                fetchLogs(); // 重新整理表格
             }
-        });
+        }
 
-        // --- D. 頁面載入時，先執行一次讀取 ---
-        fetchData();
+        // ==========================================
+        // 5. 啟動編輯模式
+        // ==========================================
+        function startEdit(id) {
+            // 從我們存好的 allLogsData 中找到這筆資料
+            const log = allLogsData.find(item => item.id === id);
+            if (!log) return;
+
+            // 1. 把資料填回輸入框
+            document.getElementById('currentId').value = log.id;
+            document.getElementById('dateInput').value = log.run_date;
+            document.getElementById('distanceInput').value = log.distance_km;
+            document.getElementById('durationInput').value = log.duration_min;
+            document.getElementById('locationInput').value = log.location;
+            document.getElementById('feelingValue').value = log.feeling;
+            updateStarsUI(log.feeling);
+
+            // 2. 改變介面狀態 (讓使用者知道現在是編輯模式)
+            const submitBtn = document.getElementById('submitBtn');
+            submitBtn.innerText = "確認修改"; // 改按鈕文字
+            submitBtn.classList.add('update-mode'); // 改按鈕顏色
+            
+            document.getElementById('cancelBtn').style.display = 'block'; // 顯示取消按鈕
+            document.getElementById('inputCard').classList.add('editing'); // 卡片變色
+            
+            // 3. 捲動到最上面
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        // ==========================================
+        // 6. 刪除資料 (Delete)
+        // ==========================================
+        async function deleteLog(id) {
+            if (!confirm("確定要刪除這筆紀錄嗎？刪除後無法復原喔！")) {
+                return;
+            }
+
+            const { error } = await dbClient
+                .from('jogging_logs')
+                .delete()
+                .eq('id', id);
+
+            if (error) {
+                alert("刪除失敗: " + error.message);
+            } else {
+                fetchLogs(); // 重新整理
+            }
+        }
+
+        // ==========================================
+        // 7. 重置表單 (回到新增模式)
+        // ==========================================
+        function resetForm() {
+            document.getElementById('currentId').value = '';
+            document.getElementById('distanceInput').value = '';
+            document.getElementById('durationInput').value = '';
+            document.getElementById('locationInput').value = '';
+            document.getElementById('feelingValue').value = '0';
+            updateStarsUI(0);
+
+            // 介面還原
+            const submitBtn = document.getElementById('submitBtn');
+            submitBtn.innerText = "新增紀錄";
+            submitBtn.classList.remove('update-mode');
+            
+            document.getElementById('cancelBtn').style.display = 'none';
+            document.getElementById('inputCard').classList.remove('editing');
+        }
+
+        // 彈窗控制
+        function showModal(msg) {
+            document.getElementById('modalTitle').innerText = msg;
+            document.getElementById('successModal').style.display = 'flex';
+        }
+        function closeModal() {
+            document.getElementById('successModal').style.display = 'none';
+        }
+
+        // 初始化
+        document.getElementById('dateInput').valueAsDate = new Date();
+        fetchLogs();
 
     </script>
 </body>
